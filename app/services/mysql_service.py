@@ -203,6 +203,8 @@ class MySQLService:
                         full_name VARCHAR(255),
                         password_hash VARCHAR(255),
                         auth_provider VARCHAR(50),
+                        role VARCHAR(32) DEFAULT 'candidate',
+                        company_id VARCHAR(255) DEFAULT 'default',
                         created_at DATETIME,
                         updated_at DATETIME,
                         reset_token VARCHAR(255),
@@ -319,6 +321,8 @@ class MySQLService:
                         full_name VARCHAR(255),
                         password_hash VARCHAR(255),
                         auth_provider VARCHAR(50),
+                        role VARCHAR(32) DEFAULT 'candidate',
+                        company_id VARCHAR(255) DEFAULT 'default',
                         created_at DATETIME,
                         updated_at DATETIME,
                         reset_token VARCHAR(255),
@@ -431,6 +435,22 @@ class MySQLService:
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """
                 )
+            # Existing installations predate interviewer roles and company
+            # namespaces. Add the columns in place without requiring a separate
+            # migration service; new signups remain candidate-role by default.
+            if self.is_sqlite:
+                user_columns = {row[1] for row in cur.execute("PRAGMA table_info(users)").fetchall()}
+                if "role" not in user_columns:
+                    cur.execute("ALTER TABLE users ADD COLUMN role VARCHAR(32) DEFAULT 'candidate'")
+                if "company_id" not in user_columns:
+                    cur.execute("ALTER TABLE users ADD COLUMN company_id VARCHAR(255) DEFAULT 'default'")
+            else:
+                cur.execute("SHOW COLUMNS FROM users LIKE 'role'")
+                if cur.fetchone() is None:
+                    cur.execute("ALTER TABLE users ADD COLUMN role VARCHAR(32) DEFAULT 'candidate'")
+                cur.execute("SHOW COLUMNS FROM users LIKE 'company_id'")
+                if cur.fetchone() is None:
+                    cur.execute("ALTER TABLE users ADD COLUMN company_id VARCHAR(255) DEFAULT 'default'")
             self._conn.commit()
         finally:
             cur.close()

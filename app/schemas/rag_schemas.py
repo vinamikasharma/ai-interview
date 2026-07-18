@@ -13,6 +13,7 @@ and never includes an embedding vector.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -89,6 +90,14 @@ class EvaluateAnswerRequest(BaseModel):
     candidate_answer: str
     role: str
     candidate_id: str = "anonymous"
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Live interview session id; enables persisted interviewer coaching",
+    )
+    company_id: Optional[str] = Field(
+        default=None,
+        description="Optional company namespace retained with the evaluation",
+    )
 
 
 class EvaluateAnswerResponse(BaseModel):
@@ -105,6 +114,36 @@ class EvaluateAnswerResponse(BaseModel):
     criteria_met: List[str]
     criteria_missed: List[str]
     rubric_snippets: List[RetrievedChunkView]
+
+
+# ───────────────────── interviewer follow-up coaching ────────────────────────
+
+
+class WeakTopic(BaseModel):
+    topic: str
+    lowest_score: Optional[float]
+    question_asked: str
+    candidate_answer_summary: str
+
+
+class SuggestedFollowup(BaseModel):
+    question: str
+    why: str
+    source_topic: str
+    retrieved_chunk_ids: List[str]
+
+
+class FollowupSuggestionRequest(BaseModel):
+    candidate_id: str
+    session_id: str
+
+
+class FollowupSuggestionResponse(BaseModel):
+    session_id: str
+    candidate_id: str
+    weak_topics: List[WeakTopic]
+    suggested_followups: List[SuggestedFollowup]
+    generated_at: datetime
 
 
 # ─────────────────────── similarity detection (proctoring) ───────────────────
