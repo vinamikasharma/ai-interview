@@ -56,6 +56,8 @@ def _serialize_user(user_doc) -> dict:
         "email": getattr(user_doc, 'email', ""),
         "full_name": getattr(user_doc, 'full_name', ""),
         "auth_provider": getattr(user_doc, 'auth_provider', "email"),
+        "role": getattr(user_doc, "role", "candidate") or "candidate",
+        "company_id": getattr(user_doc, "company_id", "default") or "default",
         "created_at": getattr(user_doc, 'created_at', None),
         "updated_at": getattr(user_doc, 'updated_at', None),
     }
@@ -156,6 +158,21 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return {"token": token, "user": user}
+
+
+def require_interviewer(current=Depends(get_current_user)):
+    """Authorize routes containing interviewer-only candidate intelligence.
+
+    Candidate is the secure default for legacy rows and new self-service signups;
+    interviewer accounts must be provisioned explicitly by an administrator.
+    """
+    role = str(getattr(current["user"], "role", "candidate") or "candidate").lower()
+    if role != "interviewer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Interviewer role required",
+        )
+    return current
 
 
 class SignUpRequest(BaseModel):
