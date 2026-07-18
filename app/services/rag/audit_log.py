@@ -21,6 +21,7 @@ from app.services.rag.vector_store import RetrievedChunk
 
 
 _SCHEMA_READY = False
+_FOLLOWUP_SCHEMA_READY = False
 
 
 def _redact_query(query_text: str) -> str:
@@ -64,6 +65,78 @@ def _ensure_table() -> bool:
     except Exception as exc:
         logger.warning(f"RAG audit table unavailable, skipping audit: {exc}")
         return False
+
+
+def _ensure_followup_table() -> bool:
+    """Create the interviewer-coaching audit table once per process."""
+    global _FOLLOWUP_SCHEMA_READY
+    if _FOLLOWUP_SCHEMA_READY:
+        return True
+    try:
+        from app.services.mysql_service import get_mysql
+
+        get_mysql().get_session().execute(
+            """
+            CREATE TABLE IF NOT EXISTS rag_followup_audit (
+                id CHAR(36) PRIMARY KEY,
+                created_at DATETIME,
+                session_id VARCHAR(255),
+                candidate_id VARCHAR(255),
+                operation VARCHAR(64),
+                weak_topics_json LONGTEXT,
+                retrieved_chunk_ids_json LONGTEXT
+            )
+            """
+        )
+        _FOLLOWUP_SCHEMA_READY = True
+        return True
+    except Exception as exc:
+        logger.warning(f"RAG follow-up audit table unavailable, skipping audit: {exc}")
+        return False
+
+
+def log_followup(
+    session_id: str,
+    candidate_id: str,
+    weak_topics: Sequence[dict],
+    retrieved_chunk_ids: Sequence[str],
+) -> None:
+    """Audit coaching generation without persisting answer/question plaintext."""
+    if not settings.RAG_AUDIT_ENABLED or not _ensure_followup_table():
+        return
+    try:
+        from app.services.mysql_service import get_mysql
+
+        topic_payload = [
+            {
+                "topic_hash": _redact_query(str(item.get("topic", ""))),
+                "question_hash": _redact_query(str(item.get("question_asked", ""))),
+                "answer_summary_hash": _redact_query(
+                    str(item.get("candidate_answer_summary", ""))
+                ),
+                "score": item.get("lowest_score"),
+            }
+            for item in weak_topics
+        ]
+        get_mysql().get_session().execute(
+            """
+            INSERT INTO rag_followup_audit
+                (id, created_at, session_id, candidate_id, operation,
+                 weak_topics_json, retrieved_chunk_ids_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                str(uuid.uuid4()),
+                datetime.now(timezone.utc),
+                session_id[:255],
+                candidate_id[:255],
+                "suggest_followup",
+                json.dumps(topic_payload, ensure_ascii=False),
+                json.dumps(list(retrieved_chunk_ids), ensure_ascii=False),
+            ),
+        )
+    except Exception as exc:
+        logger.warning(f"RAG follow-up audit write failed (non-fatal): {exc}")
 
 
 def log_retrieval(
